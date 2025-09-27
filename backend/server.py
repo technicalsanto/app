@@ -158,6 +158,47 @@ async def delete_savings_goal(goal_id: str):
         raise HTTPException(status_code=404, detail="Savings goal not found")
     return {"message": "Savings goal deleted successfully"}
 
+# Budget endpoints
+@api_router.get("/spending-summary")
+async def get_spending_summary():
+    """Get spending summary with analytics data"""
+    expenses = await db.expenses.find().to_list(1000)
+    
+    if not expenses:
+        return {
+            "total_spent": 0,
+            "categories": {},
+            "monthly_data": {},
+            "transaction_count": 0
+        }
+    
+    # Calculate totals by category
+    categories = {}
+    monthly_data = {}
+    total_spent = 0
+    
+    for expense in expenses:
+        # Category totals
+        category = expense.get('category', 'other')
+        categories[category] = categories.get(category, 0) + expense.get('amount', 0)
+        total_spent += expense.get('amount', 0)
+        
+        # Monthly totals
+        if expense.get('date'):
+            try:
+                expense_date = datetime.fromisoformat(expense['date'].replace('Z', '+00:00'))
+                month_key = expense_date.strftime('%Y-%m')
+                monthly_data[month_key] = monthly_data.get(month_key, 0) + expense.get('amount', 0)
+            except:
+                pass
+    
+    return {
+        "total_spent": total_spent,
+        "categories": categories,
+        "monthly_data": monthly_data,
+        "transaction_count": len(expenses)
+    }
+
 # Tips endpoints
 @api_router.get("/tips", response_model=List[Tip])
 async def get_tips():
