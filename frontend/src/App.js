@@ -878,7 +878,7 @@ function App() {
 
           {/* Navigation Tabs */}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-3 mb-8">
+            <TabsList className="grid w-full grid-cols-4 mb-8">
               <TabsTrigger value="expenses" className="flex items-center space-x-2" data-testid="expenses-tab">
                 <DollarSign className="h-4 w-4" />
                 <span>Expenses</span>
@@ -886,6 +886,10 @@ function App() {
               <TabsTrigger value="goals" className="flex items-center space-x-2" data-testid="goals-tab">
                 <Target className="h-4 w-4" />
                 <span>Goals</span>
+              </TabsTrigger>
+              <TabsTrigger value="analytics" className="flex items-center space-x-2" data-testid="analytics-tab">
+                <BarChart className="h-4 w-4" />
+                <span>Analytics</span>
               </TabsTrigger>
               <TabsTrigger value="tips" className="flex items-center space-x-2" data-testid="tips-tab">
                 <Lightbulb className="h-4 w-4" />
