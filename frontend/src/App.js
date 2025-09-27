@@ -905,6 +905,10 @@ function App() {
               <SavingsGoals />
             </TabsContent>
 
+            <TabsContent value="analytics">
+              <Analytics />
+            </TabsContent>
+
             <TabsContent value="tips">
               <SmartTips />
             </TabsContent>
