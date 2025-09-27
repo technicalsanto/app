@@ -20,6 +20,9 @@ import { toast } from 'sonner';
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
+// Register ChartJS components
+ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend, ArcElement, LineElement, PointElement);
+
 // Category icons and colors
 const categoryConfig = {
   food: { icon: '🍽️', color: 'bg-orange-100 text-orange-800', name: 'Food' },
