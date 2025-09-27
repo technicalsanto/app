@@ -494,6 +494,289 @@ function SavingsGoals() {
   );
 }
 
+// Analytics Dashboard Component
+function Analytics() {
+  const [expenses, setExpenses] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchExpenses = async () => {
+    try {
+      const response = await axios.get(`${API}/expenses`);
+      setExpenses(response.data);
+    } catch (error) {
+      console.error('Error fetching expenses:', error);
+      toast.error('Failed to load expenses');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchExpenses();
+  }, []);
+
+  // Calculate analytics data
+  const getCategoryData = () => {
+    const categoryTotals = {};
+    expenses.forEach(expense => {
+      const category = expense.category || 'other';
+      categoryTotals[category] = (categoryTotals[category] || 0) + expense.amount;
+    });
+
+    const categories = Object.keys(categoryTotals);
+    const amounts = Object.values(categoryTotals);
+    const colors = categories.map((_, index) => Object.values(chartColors)[index % Object.values(chartColors).length]);
+
+    return {
+      labels: categories.map(cat => categoryConfig[cat]?.name || cat),
+      datasets: [{
+        data: amounts,
+        backgroundColor: colors,
+        borderColor: colors,
+        borderWidth: 2
+      }]
+    };
+  };
+
+  const getMonthlyData = () => {
+    const monthlyTotals = {};
+    const last6Months = eachMonthOfInterval({
+      start: subMonths(new Date(), 5),
+      end: new Date()
+    });
+
+    // Initialize all months with 0
+    last6Months.forEach(month => {
+      const monthKey = format(month, 'yyyy-MM');
+      monthlyTotals[monthKey] = 0;
+    });
+
+    // Add actual expenses
+    expenses.forEach(expense => {
+      const expenseDate = new Date(expense.date);
+      const monthKey = format(expenseDate, 'yyyy-MM');
+      if (monthlyTotals.hasOwnProperty(monthKey)) {
+        monthlyTotals[monthKey] += expense.amount;
+      }
+    });
+
+    return {
+      labels: last6Months.map(month => format(month, 'MMM yyyy')),
+      datasets: [{
+        label: 'Monthly Spending',
+        data: Object.values(monthlyTotals),
+        backgroundColor: 'rgba(20, 184, 166, 0.2)',
+        borderColor: 'rgb(20, 184, 166)',
+        borderWidth: 3,
+        fill: true,
+        tension: 0.4
+      }]
+    };
+  };
+
+  const totalSpent = expenses.reduce((sum, expense) => sum + expense.amount, 0);
+  const avgMonthlySpending = totalSpent / Math.max(1, Math.ceil(expenses.length / 10)); // rough estimate
+  const thisMonthExpenses = expenses.filter(expense => {
+    const expenseDate = new Date(expense.date);
+    const now = new Date();
+    return isWithinInterval(expenseDate, {
+      start: startOfMonth(now),
+      end: endOfMonth(now)
+    });
+  });
+  const thisMonthTotal = thisMonthExpenses.reduce((sum, expense) => sum + expense.amount, 0);
+
+  if (loading) {
+    return (
+      <div className="text-center py-8">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-500 mx-auto"></div>
+        <p className="mt-4 text-gray-600">Loading analytics...</p>
+      </div>
+    );
+  }
+
+  if (expenses.length === 0) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Analytics</h2>
+          <p className="text-gray-600">Insights into your spending patterns</p>
+        </div>
+        <Card className="text-center py-8">
+          <CardContent>
+            <BarChart className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">No data to analyze yet</h3>
+            <p className="text-gray-600">Start tracking expenses to see your spending insights!</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-2xl font-bold text-gray-900">Analytics Dashboard</h2>
+        <p className="text-gray-600">Insights into your spending patterns</p>
+      </div>
+
+      {/* Summary Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600">Total Spent</p>
+                <p className="text-2xl font-bold text-teal-600">${totalSpent.toFixed(2)}</p>
+              </div>
+              <DollarSign className="h-8 w-8 text-teal-500" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600">This Month</p>
+                <p className="text-2xl font-bold text-blue-600">${thisMonthTotal.toFixed(2)}</p>
+              </div>
+              <Calendar className="h-8 w-8 text-blue-500" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600">Transactions</p>
+                <p className="text-2xl font-bold text-purple-600">{expenses.length}</p>
+              </div>
+              <TrendingUp className="h-8 w-8 text-purple-500" />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Category Breakdown */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <PieChart className="h-5 w-5 text-teal-600" />
+              <span>Spending by Category</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-80">
+              <Pie 
+                data={getCategoryData()} 
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: {
+                    legend: {
+                      position: 'bottom',
+                      labels: {
+                        padding: 20,
+                        usePointStyle: true
+                      }
+                    }
+                  }
+                }}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Monthly Trend */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <TrendingUp className="h-5 w-5 text-teal-600" />
+              <span>Monthly Spending Trend</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-80">
+              <Line 
+                data={getMonthlyData()} 
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  plugins: {
+                    legend: {
+                      display: false
+                    }
+                  },
+                  scales: {
+                    y: {
+                      beginAtZero: true,
+                      ticks: {
+                        callback: function(value) {
+                          return '$' + value.toFixed(0);
+                        }
+                      }
+                    }
+                  }
+                }}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Category Details */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2">
+            <BarChart className="h-5 w-5 text-teal-600" />
+            <span>Category Breakdown</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {Object.entries(
+              expenses.reduce((acc, expense) => {
+                const category = expense.category || 'other';
+                acc[category] = (acc[category] || 0) + expense.amount;
+                return acc;
+              }, {})
+            )
+              .sort(([,a], [,b]) => b - a)
+              .map(([category, amount]) => {
+                const config = categoryConfig[category] || categoryConfig.other;
+                const percentage = ((amount / totalSpent) * 100).toFixed(1);
+                
+                return (
+                  <div key={category} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                    <div className="flex items-center space-x-3">
+                      <div className={`w-10 h-10 rounded-full ${config.color} flex items-center justify-center text-lg`}>
+                        {config.icon}
+                      </div>
+                      <div>
+                        <p className="font-semibold text-gray-900">{config.name}</p>
+                        <p className="text-sm text-gray-600">{percentage}% of total spending</p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-lg font-bold text-gray-900">${amount.toFixed(2)}</p>
+                      <p className="text-sm text-gray-600">
+                        {expenses.filter(e => e.category === category).length} transactions
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 function SmartTips() {
   const [tips, setTips] = useState([]);
   const [loading, setLoading] = useState(true);
