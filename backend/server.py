@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, HTTPException
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -6,10 +6,10 @@ import os
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Optional
 import uuid
-from datetime import datetime
-
+from datetime import datetime, timezone
+from enum import Enum
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -25,32 +25,208 @@ app = FastAPI()
 # Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
+# Enums
+class ExpenseCategory(str, Enum):
+    FOOD = "food"
+    TRAVEL = "travel"
+    ENTERTAINMENT = "entertainment"
+    SHOPPING = "shopping"
+    BILLS = "bills"
+    HEALTH = "health"
+    OTHER = "other"
 
-# Define Models
-class StatusCheck(BaseModel):
+# Models
+class Expense(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    amount: float
+    category: ExpenseCategory
+    description: str
+    date: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-class StatusCheckCreate(BaseModel):
-    client_name: str
+class ExpenseCreate(BaseModel):
+    amount: float
+    category: ExpenseCategory
+    description: str
+    date: Optional[datetime] = None
 
-# Add your routes to the router instead of directly to app
+class SavingsGoal(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    name: str
+    target_amount: float
+    current_amount: float = 0.0
+    target_date: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class SavingsGoalCreate(BaseModel):
+    name: str
+    target_amount: float
+    target_date: Optional[datetime] = None
+
+class SavingsGoalUpdate(BaseModel):
+    current_amount: float
+
+class Tip(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    title: str
+    content: str
+    category: str
+    is_personalized: bool = False
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+# Helper functions
+def prepare_for_mongo(data):
+    """Convert datetime objects to ISO strings for MongoDB storage"""
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if isinstance(value, datetime):
+                data[key] = value.isoformat()
+    return data
+
+def parse_from_mongo(item):
+    """Convert ISO strings back to datetime objects from MongoDB"""
+    if isinstance(item, dict):
+        for key, value in item.items():
+            if isinstance(value, str) and 'T' in value and ('Z' in value or '+' in value or '-' in value[-6:]):
+                try:
+                    item[key] = datetime.fromisoformat(value.replace('Z', '+00:00'))
+                except ValueError:
+                    pass  # Keep as string if not a valid datetime
+    return item
+
+# Routes
 @api_router.get("/")
 async def root():
-    return {"message": "Hello World"}
+    return {"message": "SpendWise API - Your Personal Budget Tracker"}
 
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.dict()
-    status_obj = StatusCheck(**status_dict)
-    _ = await db.status_checks.insert_one(status_obj.dict())
-    return status_obj
+# Expense endpoints
+@api_router.post("/expenses", response_model=Expense)
+async def create_expense(expense_data: ExpenseCreate):
+    expense_dict = expense_data.dict()
+    if expense_dict.get('date') is None:
+        expense_dict['date'] = datetime.now(timezone.utc)
+    
+    expense = Expense(**expense_dict)
+    expense_mongo = prepare_for_mongo(expense.dict())
+    
+    await db.expenses.insert_one(expense_mongo)
+    return expense
 
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    status_checks = await db.status_checks.find().to_list(1000)
-    return [StatusCheck(**status_check) for status_check in status_checks]
+@api_router.get("/expenses", response_model=List[Expense])
+async def get_expenses():
+    expenses = await db.expenses.find().sort("date", -1).to_list(1000)
+    return [Expense(**parse_from_mongo(expense)) for expense in expenses]
+
+@api_router.delete("/expenses/{expense_id}")
+async def delete_expense(expense_id: str):
+    result = await db.expenses.delete_one({"id": expense_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Expense not found")
+    return {"message": "Expense deleted successfully"}
+
+# Savings Goal endpoints
+@api_router.post("/savings-goals", response_model=SavingsGoal)
+async def create_savings_goal(goal_data: SavingsGoalCreate):
+    goal = SavingsGoal(**goal_data.dict())
+    goal_mongo = prepare_for_mongo(goal.dict())
+    
+    await db.savings_goals.insert_one(goal_mongo)
+    return goal
+
+@api_router.get("/savings-goals", response_model=List[SavingsGoal])
+async def get_savings_goals():
+    goals = await db.savings_goals.find().sort("created_at", -1).to_list(1000)
+    return [SavingsGoal(**parse_from_mongo(goal)) for goal in goals]
+
+@api_router.put("/savings-goals/{goal_id}", response_model=SavingsGoal)
+async def update_savings_goal(goal_id: str, update_data: SavingsGoalUpdate):
+    result = await db.savings_goals.update_one(
+        {"id": goal_id},
+        {"$set": update_data.dict()}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Savings goal not found")
+    
+    updated_goal = await db.savings_goals.find_one({"id": goal_id})
+    return SavingsGoal(**parse_from_mongo(updated_goal))
+
+@api_router.delete("/savings-goals/{goal_id}")
+async def delete_savings_goal(goal_id: str):
+    result = await db.savings_goals.delete_one({"id": goal_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Savings goal not found")
+    return {"message": "Savings goal deleted successfully"}
+
+# Tips endpoints
+@api_router.get("/tips", response_model=List[Tip])
+async def get_tips():
+    # Get user's expenses to generate personalized tips
+    expenses = await db.expenses.find().to_list(1000)
+    
+    # Generate smart tips based on spending patterns
+    tips = []
+    
+    if expenses:
+        # Calculate category spending
+        category_spending = {}
+        total_spending = 0
+        
+        for expense in expenses:
+            category = expense.get('category', 'other')
+            amount = expense.get('amount', 0)
+            category_spending[category] = category_spending.get(category, 0) + amount
+            total_spending += amount
+        
+        # Generate personalized tips based on spending patterns
+        if category_spending.get('food', 0) > total_spending * 0.4:
+            tips.append(Tip(
+                title="🍽️ Food Spending Alert",
+                content="You're spending over 40% on food! Try meal prepping or cooking at home more often to save money.",
+                category="food",
+                is_personalized=True
+            ))
+        
+        if category_spending.get('entertainment', 0) > total_spending * 0.3:
+            tips.append(Tip(
+                title="🎬 Entertainment Budget",
+                content="Consider free entertainment options like parks, free museums, or home movie nights to reduce entertainment costs.",
+                category="entertainment",
+                is_personalized=True
+            ))
+        
+        if category_spending.get('shopping', 0) > total_spending * 0.25:
+            tips.append(Tip(
+                title="🛍️ Shopping Smart",
+                content="Try the 24-hour rule: wait a day before making non-essential purchases to avoid impulse buying.",
+                category="shopping",
+                is_personalized=True
+            ))
+    
+    # Add some general tips
+    general_tips = [
+        Tip(
+            title="💡 Quick Save Tip",
+            content="Save spare change in a jar. You'll be surprised how much it adds up over time!",
+            category="general",
+            is_personalized=False
+        ),
+        Tip(
+            title="📱 Use Apps Wisely",
+            content="Use cashback apps and compare prices before making purchases to get the best deals.",
+            category="general",
+            is_personalized=False
+        ),
+        Tip(
+            title="🎯 Track Your Progress",
+            content="Review your spending weekly to stay aware of your financial habits and adjust as needed.",
+            category="general",
+            is_personalized=False
+        )
+    ]
+    
+    tips.extend(general_tips)
+    return tips[:6]  # Return top 6 tips
 
 # Include the router in the main app
 app.include_router(api_router)
