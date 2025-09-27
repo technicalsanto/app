@@ -34,6 +34,17 @@ const categoryConfig = {
   other: { icon: '📦', color: 'bg-gray-100 text-gray-800', name: 'Other' }
 };
 
+// Chart colors matching our teal theme
+const chartColors = {
+  primary: 'rgb(20, 184, 166)',
+  secondary: 'rgb(134, 239, 172)',
+  tertiary: 'rgb(254, 240, 138)',
+  quaternary: 'rgb(252, 165, 165)',
+  quinary: 'rgb(196, 181, 253)',
+  senary: 'rgb(167, 243, 208)',
+  septenary: 'rgb(147, 197, 253)'
+};
+
 function ExpenseTracker() {
   const [expenses, setExpenses] = useState([]);
   const [isAddingExpense, setIsAddingExpense] = useState(false);
